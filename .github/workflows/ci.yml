@@ -1,0 +1,77 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  # Lint, types, unit tests and the full adversarial suite against the local
+  # backend. Runs everywhere, needs no Docker.
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install both packages
+        run: |
+          python -m pip install -e judge-core -e judge-python
+          python -m pip install pytest ruff mypy
+
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: mypy judge-core/src judge-python/src judge-core/tests judge-python/tests
+
+      - name: Unit tests + selftest against LocalInsecureBackend
+        run: pytest -ra
+
+  # The real security claim: the same suite under gVisor. Ubuntu host, runsc
+  # installed from the gVisor apt repo. Skips cleanly if the runtime does not
+  # come up rather than reporting a green tick it did not earn.
+  gvisor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install gVisor and register the runsc runtime
+        run: |
+          set -euo pipefail
+          curl -fsSL https://gvisor.dev/archive.key \
+            | sudo gpg --dearmor -o /usr/share/keyrings/gvisor-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gvisor-archive-keyring.gpg] https://storage.googleapis.com/gvisor/releases release main" \
+            | sudo tee /etc/apt/sources.list.d/gvisor.list > /dev/null
+          sudo apt-get update
+          sudo apt-get install -y runsc
+          sudo runsc install
+          sudo systemctl restart docker
+          docker info --format '{{json .Runtimes}}'
+
+      - name: Install both packages
+        run: |
+          python -m pip install -e judge-core -e judge-python
+          python -m pip install pytest
+
+      - name: Build the pinned sandbox image
+        run: judge build-image
+
+      - name: Selftest under gVisor
+        run: judge selftest --backend gvisor --policy
+
+      - name: Full suite including the gvisor-marked tests
+        run: pytest -ra judge-python/tests
