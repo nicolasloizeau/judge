@@ -1,4 +1,4 @@
-# Writing verifiers
+# Python verifiers
 
 A verifier is a Python module — handed to `judge` as a string — defining:
 
@@ -7,7 +7,8 @@ def verify(solution: str, rng: numpy.random.Generator) -> bool: ...
 ```
 
 Return `True` to accept. Anything else — a different return value, an exception, a
-hang, a crash — is a non-acceptance.
+hang, a crash — is a non-acceptance. The rules that hold for every language are on
+the [overview](index.md); this page is the Python specifics.
 
 ## Example: check an answer
 
@@ -123,9 +124,9 @@ thread, so parallel NumPy will not help you.
 | Spawning processes | Starts, achieves nothing — same restrictions, capped at 64 pids |
 | Caching between runs | Nothing persists. One fresh container per verification |
 
-There is also no way to attach a message to a `REJECTED` verdict. `Verdict.detail`
-carries a diagnostic, but it is derived from untrusted output — log it, never
-branch on it.
+There is also no way to attach a message to a `REJECTED` verdict.
+`Verdict.detail` carries a diagnostic, but it is derived from untrusted output —
+log it, never branch on it.
 
 ## Iterate quickly
 

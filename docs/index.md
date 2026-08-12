@@ -99,7 +99,8 @@ Return `True` to accept. `numpy`, `scipy`, `sympy` and `mpmath` are available
 inside. Use `rng` for anything random — it is seeded per run and the seed is
 recorded, so verdicts replay.
 
-More in [Writing verifiers](writing-verifiers.md).
+More in [Writing verifiers](verifiers/index.md), or straight to
+[Python verifiers](verifiers/python.md).
 
 ## Four things to know
 
@@ -122,7 +123,7 @@ accept. See [Verdicts](verdicts.md).
 
 <div class="grid cards" markdown>
 
-- :material-pencil-ruler: **[Writing verifiers](writing-verifiers.md)**
+- :material-pencil-ruler: **[Writing verifiers](verifiers/index.md)**
 
     Worked examples, including how to run the submitted solution.
 

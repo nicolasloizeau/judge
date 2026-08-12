@@ -60,7 +60,11 @@ theme:
 
 nav:
   - Home: index.md
-  - Writing verifiers: writing-verifiers.md
+  # One page per target language. Adding a language adds a line here and nothing
+  # else moves; see development.md#adding-a-language.
+  - Writing verifiers:
+      - Overview: verifiers/index.md
+      - Python: verifiers/python.md
   - Verdicts: verdicts.md
   - CLI: cli.md
   - Python API: api.md
