@@ -1,0 +1,6 @@
+# Pinned scientific stack available to every Python verifier.
+# Exact versions; the image id changes whenever this file does.
+numpy==2.1.3
+scipy==1.14.1
+sympy==1.13.3
+mpmath==1.3.0

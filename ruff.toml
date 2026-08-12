@@ -1,0 +1,30 @@
+target-version = "py311"
+line-length = 100
+src = ["judge-core/src", "judge-python/src"]
+# Code blocks in the docs are laid out for reading, not for the formatter.
+extend-exclude = ["*.md"]
+
+[lint]
+select = [
+  "E", "F", "W",      # pycodestyle / pyflakes
+  "I",                # import sorting
+  "UP",               # pyupgrade
+  "B",                # bugbear
+  "S",                # bandit
+  "SIM",              # simplify
+  "RUF",
+]
+ignore = [
+  "S603",  # subprocess with a list argv: that is the whole design
+  "S607",  # "docker" is resolved via PATH on purpose
+]
+
+[lint.per-file-ignores]
+# Tests and fixtures are full of deliberately hostile code.
+"**/tests/**" = ["S101", "S102", "E501"]
+"**/fixtures.py" = ["E501"]
+# The harness executes untrusted source and catches everything by design.
+"judge-python/src/judge/python/harness.py" = ["S102", "BLE001"]
+
+[format]
+line-ending = "lf"

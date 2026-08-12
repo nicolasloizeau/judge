@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "judge-python"
+version = "0.1.0"
+description = "Python-language support for judge: sandbox image, in-sandbox harness, adversarial fixtures, CLI."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+  "judge-core==0.1.0",
+  # The harness itself needs numpy (it constructs the verifier's Generator).
+  # The sandbox image pins scipy/sympy/mpmath on top; see image/requirements.txt.
+  "numpy>=1.26",
+]
+classifiers = [
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Typing :: Typed",
+]
+
+[project.scripts]
+judge = "judge.python.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/nicolasloizeau/judge"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["judge.python*"]
+namespaces = true
+
+[tool.setuptools.package-data]
+"judge.python" = ["py.typed"]
