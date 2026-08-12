@@ -1,0 +1,3 @@
+# Toolchain for the documentation site only; not a runtime dependency of judge.
+# Pinned so a docs build is reproducible.
+mkdocs-material==9.7.7

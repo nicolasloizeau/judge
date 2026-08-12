@@ -1,0 +1,99 @@
+site_name: judge
+site_description: >-
+  Run an untrusted verifier against an untrusted solution inside a sandbox with
+  a resource budget, and get back a structured verdict.
+site_url: https://nicolasloizeau.github.io/judge/
+site_author: Nicolas Loizeau
+
+repo_url: https://github.com/nicolasloizeau/judge
+repo_name: nicolasloizeau/judge
+edit_uri: edit/main/docs/
+
+copyright: Released under the MIT licence.
+
+docs_dir: docs
+site_dir: site
+
+# With `mkdocs build --strict` these warnings become build failures, so a broken
+# cross-reference or a stale #anchor cannot ship.
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+theme:
+  name: material
+  icon:
+    logo: material/gavel
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Follow system theme
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - content.code.copy
+    - content.code.annotate
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - search.highlight
+    - search.suggest
+    - toc.follow
+
+nav:
+  - Home: index.md
+  - Writing verifiers: writing-verifiers.md
+  - Verdicts: verdicts.md
+  - CLI: cli.md
+  - Python API: api.md
+  - Development: development.md
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tilde
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/nicolasloizeau/judge
+      name: judge on GitHub

@@ -3,6 +3,8 @@
 Run an **untrusted verifier** against an **untrusted solution** inside a sandbox
 with a resource budget, and get back a structured verdict.
 
+📖 **[Documentation](https://nicolasloizeau.github.io/judge/)**
+
 ```python
 from judge.core import Budget
 from judge.python import run
