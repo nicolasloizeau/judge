@@ -1,21 +1,30 @@
 """``judge.core`` -- language-agnostic sandboxed verification.
 
-Stdlib only. Language packages (``judge.python`` and future siblings) supply an
-image, an in-sandbox harness and a fixture set; everything about *policy*,
-*verdicts* and *containment* lives here.
+Stdlib only. Language packages (``judge.python``, ``judge.lean`` and future
+siblings) supply an image, an in-sandbox harness and a fixture set; everything
+about *policy*, *verdicts* and *containment* lives here.
 """
 
 from __future__ import annotations
 
 from judge.core.backend import Backend
 from judge.core.backends.gvisor import GvisorBackend
-from judge.core.backends.local import LocalInsecureBackend
-from judge.core.policy import DEFAULT_POLICY, SandboxPolicy, describe_policy, docker_run_args
+from judge.core.backends.local import LocalInsecureBackend, ProcessLimits, run_process
+from judge.core.policy import (
+    DEFAULT_POLICY,
+    BindMount,
+    SandboxPolicy,
+    describe_policy,
+    docker_run_args,
+)
 from judge.core.protocol import (
     SENTINEL,
+    RawOutcome,
     Request,
     Result,
+    extract_frame,
     extract_result,
+    frame_line,
     new_nonce,
     new_seed,
     verdict_from_outcome,
@@ -36,12 +45,15 @@ __all__ = [
     "DEFAULT_POLICY",
     "SENTINEL",
     "Backend",
+    "BindMount",
     "Budget",
     "BudgetError",
     "CaseResult",
     "Fixture",
     "GvisorBackend",
     "LocalInsecureBackend",
+    "ProcessLimits",
+    "RawOutcome",
     "Reason",
     "Request",
     "Result",
@@ -51,9 +63,12 @@ __all__ = [
     "__version__",
     "describe_policy",
     "docker_run_args",
+    "extract_frame",
     "extract_result",
+    "frame_line",
     "new_nonce",
     "new_seed",
+    "run_process",
     "run_selftest",
     "verdict_from_outcome",
 ]

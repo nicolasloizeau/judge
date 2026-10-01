@@ -65,6 +65,7 @@ nav:
   - Writing verifiers:
       - Overview: verifiers/index.md
       - Python: verifiers/python.md
+      - Lean: verifiers/lean.md
   - Verdicts: verdicts.md
   - CLI: cli.md
   - Python API: api.md

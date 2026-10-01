@@ -102,6 +102,16 @@ recorded, so verdicts replay.
 More in [Writing verifiers](verifiers/index.md), or straight to
 [Python verifiers](verifiers/python.md).
 
+For Lean the verifier is a *type* rather than a function — a module defining
+`Spec : Prop` or `Spec : Type` — and the solution a module defining
+`answer : Spec`, checked by the Lean kernel in a separate trusted process:
+
+```python
+from judge.lean import run
+```
+
+See [Lean verifiers](verifiers/lean.md).
+
 ## Four things to know
 
 **Return `True`, not something truthy.** `judge` checks `result is True`. Returning
@@ -143,12 +153,13 @@ accept. See [Verdicts](verdicts.md).
 
 ## Layout
 
-Two installable packages sharing the `judge.` namespace:
+Three installable packages sharing the `judge.` namespace:
 
 | Package | Import | What |
 | --- | --- | --- |
 | `judge-core` | `judge.core` | Types, sandbox policy, backends, selftest harness. Stdlib only. |
 | `judge-python` | `judge.python` | Python image, in-sandbox harness, fixtures, CLI. |
+| `judge-lean` | `judge.lean` | Lean image with Mathlib, the kernel-replaying checker, three-stage backends, fixtures, CLI. |
 
 The [repository README](https://github.com/nicolasloizeau/judge) covers the
 sandbox guarantees, the threat model and the adversarial selftest suite in full.

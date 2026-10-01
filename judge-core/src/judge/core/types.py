@@ -17,6 +17,11 @@ class Reason(StrEnum):
 
     ``ACCEPTED`` is the only accepting outcome. Everything else is a
     non-acceptance; the distinctions exist for diagnostics, not for policy.
+
+    ``VERIFIER_FAULT`` is what ``judge-python`` reports for a verifier that
+    raised or would not compile; ``BUILD_FAILED`` is the same situation for a
+    language whose verifier is compiled first (``judge-lean``: the verifier
+    module does not elaborate, or defines no ``Spec``).
     """
 
     ACCEPTED = "ACCEPTED"
@@ -45,9 +50,10 @@ class Budget:
     role ``max_solution_bytes`` carries the actual solution size and the
     ``build_*`` fields stay ``None``.
 
-    ``build_s`` / ``build_mem`` are reserved for future compiled-language
-    siblings (which must build the solution before running it) and are unused by
-    ``judge-python``.
+    ``build_s`` / ``build_mem`` are reserved for a sibling that wants a separate
+    build envelope. Neither ``judge-python`` nor ``judge-lean`` uses them:
+    ``judge-lean`` applies one ``Budget`` to each of its stages independently
+    and leaves both ``None``.
     """
 
     wall_s: float
@@ -104,6 +110,8 @@ class Verdict:
     reason: Reason
     used: Budget
     seed: int
+    """The RNG seed this run used. ``judge-python`` draws one per verification;
+    ``judge-lean`` has no randomness and records ``0``."""
     image_digest: str
     host: dict[str, Any] = field(default_factory=dict)
     detail: str = ""

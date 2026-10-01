@@ -1,0 +1,12 @@
+# Both images build from the monorepo root. Keep the context to the sources:
+# the Lake build directory alone is several gigabytes and the images fetch
+# their own copy at the pinned revisions.
+.git
+.venv
+site
+**/.lake
+**/__pycache__
+**/*.egg-info
+.mypy_cache
+.ruff_cache
+.pytest_cache

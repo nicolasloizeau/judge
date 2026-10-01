@@ -4,6 +4,12 @@ One container per verification, no reuse. Inputs go in on stdin as one JSON
 line; the verdict comes back framed on stdout. The wall clock is enforced from
 *outside* with a hard kill, because anything running inside can defeat an
 in-process timer.
+
+:meth:`GvisorBackend.run_container` is the single-container primitive
+underneath :meth:`GvisorBackend.run`. A language that needs several sandboxed
+steps per verification (``judge-lean`` builds the verifier, elaborates the
+solution and checks the result in three separate containers) composes it
+rather than re-implementing the Docker plumbing.
 """
 
 from __future__ import annotations
@@ -13,10 +19,18 @@ import platform
 import subprocess
 import time
 import uuid
+from collections.abc import Sequence
 from typing import Any
 
 from judge.core.policy import DEFAULT_POLICY, SandboxPolicy, docker_run_args
-from judge.core.protocol import Request, new_nonce, new_seed, truncate_detail, verdict_from_outcome
+from judge.core.protocol import (
+    RawOutcome,
+    Request,
+    new_nonce,
+    new_seed,
+    truncate_detail,
+    verdict_from_outcome,
+)
 from judge.core.types import Budget, Reason, Verdict
 
 log = logging.getLogger(__name__)
@@ -105,17 +119,57 @@ class GvisorBackend:
             budget=budget,
             pids_limit=self.policy.pids_limit,
         )
+        raw = self.run_container(budget=budget, stdin=request.encode() + "\n")
+
+        return verdict_from_outcome(
+            stdout=raw.stdout,
+            nonce=nonce,
+            seed=seed,
+            image_digest=digest,
+            host=host,
+            solution_bytes=solution_bytes,
+            wall_s=raw.wall_s,
+            exit_code=raw.exit_code,
+            timed_out=raw.timed_out,
+            oom_killed=raw.oom_killed,
+            launch_failed=raw.launch_failed,
+            detail=raw.detail,
+        )
+
+    # -- the single-container primitive --------------------------------------
+
+    def run_container(
+        self,
+        argv: Sequence[str] = (),
+        *,
+        budget: Budget,
+        stdin: str | None = None,
+        policy: SandboxPolicy | None = None,
+        wall_s: float | None = None,
+    ) -> RawOutcome:
+        """Run one container of :attr:`image` to completion under ``budget``.
+
+        ``argv`` goes to the image's entrypoint. ``policy`` defaults to the
+        backend's; a multi-stage backend passes a per-stage variant carrying
+        that stage's mounts. ``wall_s`` overrides ``budget.wall_s`` for the
+        outside-in kill. The container is always removed afterwards; its
+        OOM-kill flag and exit code are read before that.
+        """
+        policy = self.policy if policy is None else policy
+        wall = budget.wall_s if wall_s is None else wall_s
         container = f"judge-{uuid.uuid4().hex}"
         args = docker_run_args(
             image=self.image,
             budget=budget,
-            policy=self.policy,
+            policy=policy,
             runtime=self.runtime,
             name=container,
             docker=self.docker,
+            argv=argv,
         )
 
         stdout = ""
+        stderr = ""
         exit_code: int | None = None
         timed_out = False
         launch_failed = False
@@ -124,18 +178,19 @@ class GvisorBackend:
         try:
             proc = subprocess.run(
                 args,
-                input=request.encode() + "\n",
+                input="" if stdin is None else stdin,
                 capture_output=True,
                 text=True,
-                timeout=budget.wall_s + self.grace_s,
+                timeout=wall + self.grace_s,
                 check=False,
             )
-            stdout, exit_code = proc.stdout, proc.returncode
-            if exit_code != 0 and proc.stderr:
-                detail = truncate_detail(proc.stderr)
+            stdout, stderr, exit_code = proc.stdout, proc.stderr, proc.returncode
+            if exit_code != 0 and stderr:
+                detail = truncate_detail(stderr)
         except subprocess.TimeoutExpired as exc:
             timed_out = True
             stdout = _as_text(exc.stdout)
+            stderr = _as_text(exc.stderr)
             self._kill_container(container)
         except FileNotFoundError as exc:
             launch_failed = True
@@ -143,7 +198,7 @@ class GvisorBackend:
         except OSError as exc:  # pragma: no cover - environment dependent
             launch_failed = True
             detail = f"failed to launch docker: {exc}"
-        wall_s = time.monotonic() - started
+        wall_s_used = time.monotonic() - started
 
         oom_killed = False
         if not launch_failed:
@@ -155,15 +210,11 @@ class GvisorBackend:
             # daemon, bad image); do not warn about failing to remove it.
             self._remove_container(container, quiet=not state)
 
-        return verdict_from_outcome(
+        return RawOutcome(
             stdout=stdout,
-            nonce=nonce,
-            seed=seed,
-            image_digest=digest,
-            host=host,
-            solution_bytes=solution_bytes,
-            wall_s=wall_s,
+            stderr=stderr,
             exit_code=exit_code,
+            wall_s=wall_s_used,
             timed_out=timed_out,
             oom_killed=oom_killed,
             launch_failed=launch_failed,

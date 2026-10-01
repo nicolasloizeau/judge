@@ -24,7 +24,7 @@ judge/
 
 ## judge-core
 
-- **Types** (frozen dataclasses): `Budget(wall_s, cpu_s, mem_bytes, max_solution_bytes, build_s=None, build_mem=None)`; `Verdict(accepted: bool, reason: Reason, used: Budget, seed: int, image_digest: str, host: dict)`; `Reason` enum: `ACCEPTED, REJECTED, TIMEOUT, OOM, CRASH, VERIFIER_FAULT, BUILD_FAILED, SOLUTION_TOO_LARGE, INTERNAL_ERROR`. `build_*` and `BUILD_FAILED` are reserved for future compiled-language siblings; unused here.
+- **Types** (frozen dataclasses): `Budget(wall_s, cpu_s, mem_bytes, max_solution_bytes, build_s=None, build_mem=None)`; `Verdict(accepted: bool, reason: Reason, used: Budget, seed: int, image_digest: str, host: dict)`; `Reason` enum: `ACCEPTED, REJECTED, TIMEOUT, OOM, CRASH, VERIFIER_FAULT, BUILD_FAILED, SOLUTION_TOO_LARGE, INTERNAL_ERROR`. `build_*` and `BUILD_FAILED` are reserved for future compiled-language siblings; unused here. (`judge-lean`, specified in `judge-lean-brief.md`, now uses `BUILD_FAILED` for a verifier that does not build; `build_*` stay unused, since it applies one `Budget` per stage.)
 - **`Backend` protocol**: `run(verifier_src, solution, budget) -> Verdict`.
 - **Sandbox flag policy** as data: no network (`--network=none`), read-only rootfs, no mounts, no tmpfs, `--pids-limit`, all capabilities dropped, non-root uid, `no-new-privileges`, `PYTHONDONTWRITEBYTECODE=1`, `TMPDIR` pointing at a nonexistent path. Zero writable bytes anywhere.
 - **`GvisorBackend`**: runs a language image under Docker with `--runtime=runsc` plus the flag policy; passes inputs via stdin (JSON), reads a JSON verdict line from stdout; enforces wall clock from outside with kill; maps container OOM-kill and nonzero exits to reasons. Records image digest and host diagnostics.

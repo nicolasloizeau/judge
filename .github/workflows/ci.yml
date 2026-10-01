@@ -10,8 +10,9 @@ env:
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
 
 jobs:
-  # Lint, types, unit tests and the full adversarial suite against the local
-  # backend. Runs everywhere, needs no Docker.
+  # Lint, types, unit tests and the Python adversarial suite against the local
+  # backend. Runs everywhere, needs no Docker and no Lean: the Lean-dependent
+  # tests skip with a clear message here and run for real in `lean` below.
   check:
     runs-on: ubuntu-latest
     strategy:
@@ -25,23 +26,73 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install both packages
+      - name: Install the packages
         run: |
-          python -m pip install -e judge-core -e judge-python
+          python -m pip install -e judge-core -e judge-python -e judge-lean
           python -m pip install pytest ruff mypy
 
       - run: ruff check .
       - run: ruff format --check .
-      - run: mypy judge-core/src judge-python/src judge-core/tests judge-python/tests
+      - run: mypy judge-core/src judge-python/src judge-lean/src judge-core/tests judge-python/tests
+      - run: mypy judge-lean/tests
 
       - name: Unit tests + selftest against LocalInsecureBackend
         run: pytest -ra
 
-  # The real security claim: the same suite under gVisor. Ubuntu host, runsc
+  # The Lean suite on the local backend: the pinned toolchain, Mathlib's
+  # prebuilt oleans and the trusted checker, exactly as the image has them,
+  # without Docker. The toolchain and the Lake build directory are cached by
+  # the hash of the two pin files, so a run that does not move the pins only
+  # pays for the checkout.
+  lean:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.elan
+            judge-lean/image/project/.lake
+          key: lean-${{ runner.os }}-${{ hashFiles('judge-lean/image/project/lean-toolchain', 'judge-lean/image/project/lake-manifest.json') }}
+
+      - name: Install elan and the pinned toolchain
+        run: |
+          set -euo pipefail
+          curl -sSfL https://github.com/leanprover/elan/releases/download/v4.2.4/elan-x86_64-unknown-linux-gnu.tar.gz | tar xz -C /tmp
+          /tmp/elan-init -y --no-modify-path --default-toolchain "$(cat judge-lean/image/project/lean-toolchain)"
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Fetch Mathlib's prebuilt oleans and build the checker
+        working-directory: judge-lean/image/project
+        run: |
+          lake exe cache get
+          lake build judge-lean-check
+
+      - name: Install the packages
+        run: |
+          python -m pip install -e judge-core -e judge-lean
+          python -m pip install pytest
+
+      - name: Selftest against the local backend
+        run: judge-lean selftest --backend local
+
+      - name: Lean tests (local backend; gVisor cases skip)
+        run: pytest -ra judge-lean/tests
+
+  # The real security claim: both suites under gVisor. Ubuntu host, runsc
   # installed from the gVisor apt repo. Skips cleanly if the runtime does not
-  # come up rather than reporting a green tick it did not earn.
+  # come up rather than reporting a green tick it did not earn. The Lean image
+  # downloads Mathlib's oleans at build time (several gigabytes, many minutes);
+  # its layers are not cached across runs -- a 9 GB image does not fit the
+  # Actions cache -- so expect this job to be the slow one.
   gvisor:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
@@ -62,16 +113,27 @@ jobs:
           sudo systemctl restart docker
           docker info --format '{{json .Runtimes}}'
 
-      - name: Install both packages
+      - name: Free disk space for the Lean image
         run: |
-          python -m pip install -e judge-core -e judge-python
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Install the packages
+        run: |
+          python -m pip install -e judge-core -e judge-python -e judge-lean
           python -m pip install pytest
 
-      - name: Build the pinned sandbox image
+      - name: Build the pinned Python image
         run: judge build-image
 
-      - name: Selftest under gVisor
+      - name: Python selftest under gVisor
         run: judge selftest --backend gvisor --policy
 
-      - name: Full suite including the gvisor-marked tests
-        run: pytest -ra judge-python/tests
+      - name: Build the pinned Lean image
+        run: judge-lean build-image
+
+      - name: Lean selftest under gVisor
+        run: judge-lean selftest --backend gvisor --policy
+
+      - name: Full suites including the gvisor-marked tests
+        run: pytest -ra judge-python/tests judge-lean/tests

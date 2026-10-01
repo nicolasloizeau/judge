@@ -1,17 +1,23 @@
 # CLI
 
-`judge-python` installs a `judge` entry point with three subcommands.
+Each language package installs its own entry point with the same three
+subcommands: `judge` (Python) and `judge-lean` (Lean).
 
 ```bash
 judge build-image                                          # build the sandbox image
 judge verify --verifier f.py --solution s.txt              # verify one pair
 judge selftest                                             # run the adversarial suite
+
+judge-lean build-image
+judge-lean verify --verifier Verifier.lean --solution Solution.lean
+judge-lean selftest
 ```
 
 Add `-v` for `DEBUG` logging. Operator errors — a missing image, an unenforceable
-budget, an unreadable file — print `judge: <message>` on stderr and exit `2`.
+budget, an unreadable file — print `judge: <message>` (or `judge-lean: <message>`)
+on stderr and exit `2`.
 
-## `judge verify`
+## `verify`
 
 ```
 judge verify --verifier PATH --solution PATH
@@ -20,18 +26,19 @@ judge verify --verifier PATH --solution PATH
              [--wall-s S] [--cpu-s S] [--mem-mib MIB] [--max-solution-bytes N]
 ```
 
-| Flag | Default | |
-| --- | --- | --- |
-| `--verifier` | *required* | Path to the verifier module |
-| `--solution` | *required* | Path to the solution |
-| `--json` | off | Emit the verdict as JSON instead of the human rendering |
-| `--backend` | `gvisor` | `local` skips Docker but **does not sandbox anything** |
-| `--image` | `judge-python:0.1.0` | Image tag |
-| `--runtime` | `runsc` | Docker runtime |
-| `--wall-s` | `10.0` | Wall-clock budget |
-| `--cpu-s` | `10.0` | CPU budget |
-| `--mem-mib` | `512` | Memory budget, MiB |
-| `--max-solution-bytes` | `65536` | Max solution size |
+| Flag | `judge` default | `judge-lean` default | |
+| --- | --- | --- | --- |
+| `--verifier` | *required* | *required* | Path to the verifier source |
+| `--solution` | *required* | *required* | Path to the solution |
+| `--json` | off | off | Emit the verdict as JSON instead of the human rendering |
+| `--backend` | `gvisor` | `gvisor` | `local` skips Docker but **does not sandbox anything** |
+| `--image` | `judge-python:0.1.0` | `judge-lean:0.1.0` | Image tag |
+| `--runtime` | `runsc` | `runsc` | Docker runtime |
+| `--project` | – | the checkout's | Lake project the local backend runs from |
+| `--wall-s` | `10.0` | `300.0` | Wall-clock budget (per stage for Lean) |
+| `--cpu-s` | `10.0` | `300.0` | CPU budget (per stage for Lean) |
+| `--mem-mib` | `512` | `8192` | Memory budget, MiB (per stage for Lean) |
+| `--max-solution-bytes` | `65536` | `262144` | Max solution size |
 
 **Exit status is the verdict**: `0` accepted, `1` not accepted, `2` operator error.
 
@@ -67,6 +74,26 @@ NOT ACCEPTED  (REJECTED)
   detail        : verify() returned False, not True
 ```
 
+A Lean verdict looks the same, with `seed : 0`, the deciding `stage` and the
+axioms the proof used:
+
+```console
+$ judge-lean verify --verifier Verifier.lean --solution Solution.lean
+ACCEPTED  (ACCEPTED)
+  seed          : 0
+  image_digest  : sha256:...
+  wall_s        : 5.812
+  cpu_s         : 1.930
+  mem_bytes     : 412745728
+  solution_bytes: 57
+  host.axioms   : []
+  host.backend  : gvisor
+  host.language : lean
+  host.spec_is_prop: True
+  host.stage    : check-solution
+  ...
+```
+
 With `--json`:
 
 ```json
@@ -91,10 +118,11 @@ With `--json`:
 In `used`, `max_solution_bytes` is the *actual* solution size, and values are
 unrounded — `pretty()` formats to three decimals, `to_json()` does not.
 
-## `judge build-image`
+## `build-image`
 
 ```
 judge build-image [--tag TAG] [--no-cache] [--quiet]
+judge-lean build-image [--tag TAG] [--no-cache] [--quiet]
 ```
 
 ```console
@@ -103,21 +131,22 @@ built judge-python:0.1.0
 image_digest: sha256:7e087273820365fa3f0eb54d6510f8bdeb06c29016260d37f1086a60f58074f1
 ```
 
-Defaults to `judge-python:0.1.0`. Must be run from a source checkout — the Docker
-build context needs both packages, so a pip-installed `judge-python` cannot build
-its own image and says so rather than guessing.
+Must be run from a source checkout — the Docker build context needs
+`judge-core` too, so a pip-installed package cannot build its own image and
+says so rather than guessing.
 
-Any change to the Dockerfile, the pinned requirements or either package changes the
-image id, which is what every verdict records.
+Any change to a Dockerfile, a pinned requirement, `lean-toolchain`,
+`lake-manifest.json` or either package changes the image id, which is what every
+verdict records. The Lean image downloads Mathlib's prebuilt oleans at build
+time and takes a while and several gigabytes of disk.
 
-## `judge selftest`
+## `selftest`
 
-Runs an adversarial fixture suite — fork bombs, memory balloons, infinite loops,
-network and filesystem attempts, forged verdict lines — and asserts each one is
-contained.
+Runs an adversarial fixture suite and asserts each case is contained.
 
 ```
 judge selftest [--policy] [--backend {gvisor,local}] [--wall-s S] ...
+judge-lean selftest [--policy] [--backend {gvisor,local}] [--wall-s S] ...
 ```
 
 ```console
@@ -129,11 +158,24 @@ PASS  honest-accept                got=ACCEPTED           want=ACCEPTED   1.44s
 27 passed, 0 failed, 0 skipped
 ```
 
+```console
+$ judge-lean selftest --backend local
+judge-lean selftest -- backend: local-insecure
+
+PASS  honest-accept-prop           got=ACCEPTED           want=ACCEPTED   0.47s
+PASS  honest-accept-type           got=ACCEPTED           want=ACCEPTED   0.51s
+PASS  sorry-proof                  got=REJECTED           want=REJECTED   0.44s
+        detail: `answer` depends on disallowed axioms: #[sorryAx]
+...
+28 passed, 0 failed, 1 skipped
+```
+
 Exit `0` when every case passed or skipped, `1` otherwise. `--policy` prints the
 sandbox configuration first.
 
-On the local backend, five fixtures that need real isolation are **skipped** rather
-than faked, giving `22 passed, 0 failed, 5 skipped`.
+On the local backend, fixtures that need real isolation are **skipped** rather
+than faked: five of the Python fixtures (`22 passed, 0 failed, 5 skipped`) and
+one of the Lean fixtures.
 
 This is the suite that backs the sandbox claims; run it after changing anything
 about the sandbox. Details in the [repository

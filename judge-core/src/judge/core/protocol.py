@@ -20,6 +20,10 @@ the real stdout at all.
 
 None of this is the security boundary -- the sandbox is. It defends against a
 verifier forging an ``ACCEPTED``, not against arbitrary code execution.
+
+The same framing is reused by ``judge-lean``'s trusted checker, whose payload is
+not a :class:`Result` but a small checker report; :func:`extract_frame` is the
+payload-agnostic half that both share.
 """
 
 from __future__ import annotations
@@ -38,6 +42,9 @@ PROTOCOL_VERSION = 1
 
 MAX_DETAIL_CHARS = 2000
 """Diagnostics come from untrusted code; keep them short."""
+
+SIGXCPU = 24
+SIGKILL = 9
 
 
 def new_nonce() -> str:
@@ -132,6 +139,32 @@ class Result:
         )
 
 
+def frame_line(nonce: str, payload: dict[str, Any]) -> str:
+    """Frame an arbitrary JSON object the way a harness or checker does."""
+    return f"{SENTINEL}{nonce} {json.dumps(payload)}"
+
+
+def extract_frame(stdout: str, nonce: str) -> dict[str, Any] | None:
+    """Return the last correctly framed JSON object in ``stdout``, or ``None``.
+
+    Payload-agnostic: callers decide what the object has to contain. A frame
+    whose JSON does not parse, or is not an object, is skipped and the search
+    continues further back.
+    """
+    prefix = f"{SENTINEL}{nonce} "
+    for line in reversed(stdout.splitlines()):
+        line = line.strip()
+        if not line.startswith(prefix):
+            continue
+        try:
+            payload = json.loads(line[len(prefix) :])
+        except ValueError:
+            continue  # malformed frame: keep looking further back
+        if isinstance(payload, dict):
+            return payload
+    return None
+
+
 def extract_result(stdout: str, nonce: str) -> Result | None:
     """Return the harness' result from ``stdout``, or ``None`` if absent.
 
@@ -151,6 +184,80 @@ def extract_result(stdout: str, nonce: str) -> Result | None:
         except (ValueError, KeyError):
             continue  # malformed frame: keep looking further back
     return None
+
+
+@dataclass(frozen=True, slots=True)
+class RawOutcome:
+    """What one sandboxed process did, before any interpretation.
+
+    Produced by :meth:`judge.core.backends.gvisor.GvisorBackend.run_container`
+    and :func:`judge.core.backends.local.run_process`; consumed either by
+    :func:`verdict_from_outcome` (the single-process harness protocol) or by a
+    multi-stage language backend that maps each stage itself.
+
+    ``cpu_s`` and ``mem_bytes`` are best-effort measurements of the process
+    (``wait4`` rusage locally; whatever the container reports otherwise) and
+    are ``0`` when unknown. ``wall_s`` is always measured from outside.
+    """
+
+    stdout: str
+    stderr: str
+    exit_code: int | None
+    wall_s: float
+    timed_out: bool = False
+    oom_killed: bool = False
+    launch_failed: bool = False
+    detail: str = ""
+    cpu_s: float = 0.0
+    mem_bytes: int = 0
+
+    @property
+    def signal(self) -> int | None:
+        """The signal that killed the process, if the exit status says so."""
+        if self.exit_code is None:
+            return None
+        if self.exit_code < 0:
+            return -self.exit_code
+        if self.exit_code > 128:
+            return self.exit_code - 128  # shell / docker convention
+        return None
+
+    def limit_reason(self) -> tuple[Reason, str] | None:
+        """The reason a *resource limit or the host* explains this outcome.
+
+        ``None`` means the process ran to completion on its own terms and the
+        caller must interpret its exit code and output. This is the one place
+        that knows "137 means the memory cap" and "SIGXCPU means the CPU
+        budget", so every backend and every stage agrees.
+        """
+        if self.launch_failed:
+            return Reason.INTERNAL_ERROR, self.detail or "failed to launch sandbox"
+        # The outside-in kill is authoritative: anything inside can swallow its
+        # own timers, so a wall-clock kill outranks whatever was printed.
+        if self.timed_out:
+            return Reason.TIMEOUT, self.detail or "killed by wall-clock timeout"
+        if self.oom_killed:
+            return Reason.OOM, self.detail or "container was OOM-killed"
+        if self.signal == SIGXCPU:
+            return Reason.TIMEOUT, self.detail or "killed by SIGXCPU (CPU budget exhausted)"
+        if self.exit_code == 137:
+            return Reason.OOM, self.detail or "exit 137 (SIGKILL, usually the memory cap)"
+        if self.exit_code in (125, 126, 127):
+            return (
+                Reason.INTERNAL_ERROR,
+                self.detail or f"sandbox launcher failed (exit {self.exit_code})",
+            )
+        return None
+
+    def crash_detail(self, what: str = "sandbox") -> str:
+        """A default diagnostic for a process that died without an answer."""
+        if self.detail:
+            return self.detail
+        if self.exit_code is None:
+            return f"{what} produced no result"
+        if self.exit_code < 0:
+            return f"{what} killed by signal {-self.exit_code}"
+        return f"{what} exited {self.exit_code} without a result"
 
 
 def verdict_from_outcome(
@@ -173,6 +280,16 @@ def verdict_from_outcome(
     Shared by every backend so that "what does exit code 137 mean" is answered
     in exactly one place. A missing or unframed result line is never accepting.
     """
+    raw = RawOutcome(
+        stdout=stdout,
+        stderr="",
+        exit_code=exit_code,
+        wall_s=wall_s,
+        timed_out=timed_out,
+        oom_killed=oom_killed,
+        launch_failed=launch_failed,
+        detail=detail,
+    )
     result = extract_result(stdout, nonce)
     used = Budget(
         wall_s=wall_s,
@@ -191,15 +308,9 @@ def verdict_from_outcome(
             detail=truncate_detail(why),
         )
 
-    if launch_failed:
-        return make(Reason.INTERNAL_ERROR, detail or "failed to launch sandbox")
-
-    # The outside-in kill is authoritative: a verifier can swallow the harness'
-    # own in-process timeout, so a wall-clock kill outranks whatever it printed.
-    if timed_out:
-        return make(Reason.TIMEOUT, detail or "killed by wall-clock timeout")
-    if oom_killed:
-        return make(Reason.OOM, detail or "container was OOM-killed")
+    limited = raw.limit_reason()
+    if limited is not None:
+        return make(*limited)
 
     if result is not None:
         return make(result.reason, result.detail)
@@ -208,10 +319,6 @@ def verdict_from_outcome(
         return make(Reason.CRASH, detail or "sandbox produced no verdict")
     if exit_code < 0:
         return make(Reason.CRASH, detail or f"killed by signal {-exit_code}")
-    if exit_code == 137:
-        return make(Reason.OOM, detail or "exit 137 (SIGKILL, usually the memory cap)")
-    if exit_code in (125, 126, 127):
-        return make(Reason.INTERNAL_ERROR, detail or f"sandbox launcher failed (exit {exit_code})")
     return make(
         Reason.CRASH,
         detail or f"sandbox exited {exit_code} without a verdict line",
