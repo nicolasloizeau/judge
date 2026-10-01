@@ -180,10 +180,11 @@ class _Watchdog(threading.Thread):
         self.timed_out = False
         self.oom_killed = False
         self.peak_rss = 0
-        self._stop = threading.Event()
+        # Not `_stop`: threading.Thread has a private method of that name.
+        self._halt = threading.Event()
 
     def run(self) -> None:
-        while not self._stop.wait(self.POLL_S):
+        while not self._halt.wait(self.POLL_S):
             if time.monotonic() >= self.deadline:
                 self.timed_out = True
                 _kill_group(self.proc, wait=False)
@@ -197,7 +198,7 @@ class _Watchdog(threading.Thread):
                     return
 
     def stop(self) -> None:
-        self._stop.set()
+        self._halt.set()
 
 
 def _session_rss(sid: int) -> int:
